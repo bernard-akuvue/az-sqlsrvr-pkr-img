@@ -1,3 +1,5 @@
+# az-sql-img.pkr.hcl
+
 packer {
   required_plugins {
     azure = {
@@ -13,23 +15,24 @@ source "azure-arm" "sql_image" {
   image_offer               = "SQL2022-WS2022"
   image_sku                 = "sqldev-gen2"
   image_version             = "16.0.250519"
-  os_type             = "Windows"
+  os_type                   = "Windows"
 
   build_resource_group_name         = "sql-pkr-img"
-  managed_image_name                = "pkr-sql2022-ws2022-${formatdate("YYMMDD-hhmm", timestamp())}"
+  managed_image_name                = "pkr-dev-${formatdate("YYMMDDhhmm", timestamp())}"
   managed_image_resource_group_name = "sql-pkr-img"
-  vm_size                           = "Standard_B4ms"  # Burstable VM to avoid quota issues
+  vm_size                           = "Standard_B4ms"
 
   communicator   = "winrm"
   winrm_use_ssl  = true
   winrm_insecure = true
-  winrm_timeout  = "20m"  # Increased timeout for SQL config
+  winrm_timeout  = "40m"
+  winrm_port     = 5986
 
   winrm_username = "localadmin"
-  winrm_password = "Du,BOO7+awA;DZMov5dG"  # Still hardcoded - consider variables
+  winrm_password = "Du,BOO7+awA;DZMov5dG"  # Rotate after testing!
 
-  os_disk_size_gb    = 128
-  disk_additional_size = [64]  # Additional disk for SQL
+  os_disk_size_gb     = 128
+  disk_additional_size = [32, 32]
 
   azure_tags = {
     component = "sql-server"
@@ -41,17 +44,18 @@ build {
   sources = ["source.azure-arm.sql_image"]
 
   provisioner "powershell" {
-    inline = [
-      "Restart-Service -Name WinRM"
+  inline = [
+    "Write-Host 'Listing all local administrators on this VM:'",
+    "Get-LocalGroupMember -Group 'Administrators' | Select-Object -ExpandProperty Name"
     ]
+  }
+
+  provisioner "powershell" {
+    script = "./az-cfg-sql.ps1"
   }  
 
   provisioner "powershell" {
-    script = "./cfg-sql.ps1"
-  }
-
-  provisioner "windows-restart" {
-    restart_timeout = "5m"  # Allow time for SQL services to restart
+    script = "./configure-disks.ps1"
   }
 
   provisioner "powershell" {
@@ -62,3 +66,4 @@ build {
     ]
   }
 }
+ 
