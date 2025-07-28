@@ -12,7 +12,6 @@ source "azure-arm" "sql_image" {
   image_publisher           = "MicrosoftSQLServer"
   image_offer               = "SQL2022-WS2022"
   image_sku                 = "sqldev-gen2"
-  image_version             = "16.0.250519"
   os_type                   = "Windows"
 
   build_resource_group_name         = "sql-pkr-img"
@@ -49,101 +48,80 @@ build {
 
   provisioner "powershell" {
     inline = [
-      # Enable SQL services
-      "Set-Service -Name MSSQLSERVER -StartupType Automatic",
-      "Set-Service -Name SQLSERVERAGENT -StartupType Automatic",
-      "Write-Host 'SQL services set to start automatically'",
+      "Set-Service -Name MSSQLSERVER   -StartupType Automatic",
+      "Set-Service -Name SQLSERVERAGENT -StartupType Automatic"
+    ]
+  }
 
-      # Start SQL Server and wait for initialization
+  provisioner "powershell" {
+    inline = [
+      "Write-Host 'Configuring IFI...'",
       "try {",
-      "    Start-Service MSSQLSERVER -ErrorAction Stop",
-      "    Write-Host 'SQL Server started. Waiting for full initialization...'",
-      "    $timeout = 300; $interval = 10",
-      "    $svc = Get-Service MSSQLSERVER",
-      "    while ($svc.Status -ne 'Running' -and $timeout -gt 0) {",
-      "        Start-Sleep -Seconds $interval",
-      "        $timeout -= $interval",
-      "        $svc.Refresh()",
+      "  $svc = Get-CimInstance -ClassName Win32_Service -Filter \"Name='MSSQLSERVER'\"",
+      "  if (-not $svc) { throw 'MSSQLSERVER service not found' }",
+      "  $accountName = $svc.StartName",
+      "  if (-not $accountName) { throw 'Failed to get account name for MSSQLSERVER service' }",
+      "  ",
+      "  # Handle NT SERVICE\\ account format",
+      "  if ($accountName -match '^NT SERVICE\\\\') {",
+      "    $accountName = 'NT SERVICE\\' + ($accountName -split '\\\\')[-1]",
+      "  }",
+      "  ",
+      "  # Convert account name to SID",
+      "  $ntAccount = New-Object System.Security.Principal.NTAccount($accountName)",
+      "  $sid = $ntAccount.Translate([System.Security.Principal.SecurityIdentifier]).Value",
+      "  if (-not $sid) { throw 'Failed to convert account to SID' }",
+      "  ",
+      "  $cfg = \"$env:TEMP\\secpol.cfg\"",
+      "  secedit /export /cfg $cfg | Out-Null",
+      "  $content = Get-Content $cfg",
+      "  $newContent = @()",
+      "  $privilegeLineFound = $false",
+      "  ",
+      "  # Process each line individually",
+      "  foreach ($line in $content) {",
+      "    if ($line -match '^SeManageVolumePrivilege\\s*=') {",
+      "      $privilegeLineFound = $true",
+      "      if ($line -notmatch [regex]::Escape($sid)) {",
+      "        $line = $line.Trim() + \",*$sid\"",
+      "      }",
       "    }",
-      "    if ($svc.Status -ne 'Running') {",
-      "        throw 'SQL Server did not start within timeout'",
-      "    }",
-      "    Write-Host 'SQL Server fully initialized'",
-      "} catch {",
-      "    Write-Error 'Failed to start SQL Server: $_'",
-      "    exit 1",
+      "    $newContent += $line",
+      "  }",
+      "  ",
+      "  if (-not $privilegeLineFound) {",
+      "    $newContent += \"SeManageVolumePrivilege = *$sid\"",
+      "  }",
+      "  ",
+      "  $newContent | Set-Content $cfg",
+      "  secedit /configure /db \"$env:windir\\security\\local.sdb\" /cfg $cfg /areas USER_RIGHTS",
+      "  Remove-Item $cfg -Force",
+      "  Write-Host 'IFI configured successfully'",
+      "} catch { ",
+      "  Write-Error \"IFI error: $_\"",
+      "  if ($cfg) { Write-Host 'Config file content:' ; Get-Content $cfg }",
+      "  exit 1 ",
       "}"
     ]
   }
 
   provisioner "powershell" {
     inline = [
-      # Configure Instant File Initialization using security policy
-      "try {",
-      "    Write-Host 'Configuring Instant File Initialization via security policy'",
-      "    ",
-      "    # Get SQL Server service account SID",
-      "    $service = Get-WmiObject Win32_Service -Filter \"Name='MSSQLSERVER'\"",
-      "    if (-not $service) { throw 'SQL Server service not found' }",
-      "    ",
-      "    $account = New-Object System.Security.Principal.NTAccount($service.StartName)",
-      "    $sid = $account.Translate([System.Security.Principal.SecurityIdentifier]).Value",
-      "    Write-Host \"Resolved service account SID: $sid\"",
-      "    ",
-      "    $tempCfg = \"$env:TEMP\\secpol.cfg\"",
-      "    secedit /export /cfg $tempCfg",
-      "    ",
-      "    # Safely modify privilege assignment",
-      "    $content = Get-Content $tempCfg",
-      "    $privilegeLine = $content | Where-Object { $_ -match '^SeManageVolumePrivilege\\s*=' }",
-      "    if ($privilegeLine) {",
-      "        # Append service account SID if not already present",
-      "        if ($privilegeLine -notmatch [regex]::Escape($sid)) {",
-      "            $newLine = $privilegeLine.Trim() + \",*$sid\"",
-      "            $content = $content -replace [regex]::Escape($privilegeLine), $newLine",
-      "        }",
-      "    } else {",
-      "        # Create new entry if privilege doesn't exist",
-      "        $content += \"SeManageVolumePrivilege = *$sid\"",
-      "    }",
-      "    $content | Set-Content $tempCfg",
-      "    ",
-      "    # Apply configuration",
-      "    secedit /configure /db \"$env:windir\\security\\local.sdb\" /cfg $tempCfg /areas USER_RIGHTS",
-      "    Remove-Item $tempCfg -Force",
-      "    Write-Host 'Instant File Initialization configured successfully'",
-      "} catch {",
-      "    Write-Error \"ERROR configuring IFI: $_\"",
-      "    exit 1",
-      "}",
-
-      "Write-Host 'Base SQL Server image prepared. SQL IaaS Extension will be installed post-deployment.'"
-    ]
-  }
-
-  provisioner "windows-restart" {
-    pause_before    = "1m"
-    restart_timeout = "30m"
-  }
-
-  provisioner "powershell" {
-    inline = [
-      "Write-Host 'Running Sysprep…'",
-      "& $env:SystemRoot\\System32\\Sysprep\\Sysprep.exe /generalize /oobe /shutdown /quiet /mode:vm",
-
-      "# Give Sysprep a moment to finish writing its success marker",
-      "Start-Sleep -Seconds 10",
-
-      "# The presence of this file means Sysprep truly succeeded",
-      "$tag = \"$env:SystemRoot\\System32\\Sysprep\\Sysprep_succeeded.tag\"",
-      "if (Test-Path $tag) {",
-      "  Write-Host 'Sysprep succeeded (tag found)'",
-      "} else {",
-      "  Write-Error 'Sysprep did NOT succeed — marker file missing.'",
-      "  Write-Host 'Last 50 lines of setupact.log for diagnostics:'",
-      "  Get-Content \"$env:SystemRoot\\System32\\Sysprep\\Panther\\setupact.log\" | Select-Object -Last 50",
+      "Write-Host 'Running Sysprep...'",
+      "$sysprep = \"$env:SystemRoot\\System32\\Sysprep\\Sysprep.exe\"",
+      "$arguments = '/generalize', '/oobe', '/shutdown', '/quiet', '/mode:vm'",
+      "$process = Start-Process -FilePath $sysprep -ArgumentList $arguments -PassThru -NoNewWindow",
+      "$process.WaitForExit(30000) | Out-Null",
+      "if (-not $process.HasExited) {",
+      "  Write-Error 'Sysprep failed to complete within 30 seconds'",
       "  exit 1",
-      "}"
+      "}",
+      "if ($process.ExitCode -ne 0) {",
+      "  Write-Error \"Sysprep failed with exit code $($process.ExitCode)\"",
+      "  exit 1",
+      "}",
+      "Write-Host 'Sysprep completed successfully - system will shut down'",
+      "Start-Sleep -Seconds 10  # Ensure shutdown command completes"
     ]
   }
 }
