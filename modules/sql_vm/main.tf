@@ -115,8 +115,8 @@ resource "azurerm_windows_virtual_machine" "win" {
   }
 
   source_image_reference {
-    publisher = "MicrosoftSQLServer"
-    offer     = "SQL2022-WS2022"
+    publisher = "microsoftsqlserver"
+    offer     = "sql2022-WS2022"
     sku       = var.sql_edition
     version   = "latest"
   }

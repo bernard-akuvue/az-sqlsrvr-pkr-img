@@ -1,6 +1,6 @@
 win_vm_name          = "w2022-dev-vm"
 location             = "westus2"
-admin_username       = "localadmin"
+admin_username       = "ewnadmin"
 sql_edition          = "sqldev-gen2" # Options: sqldev-gen2, standard-gen2, enterprise-gen2
 existing_vnet_name   = "vnet-nonprod-external-devtest"
 existing_subnet_name = "snet-beta-web"

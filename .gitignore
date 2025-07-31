@@ -1,30 +1,57 @@
-# Local .terraform directories
-*.terraform/
+# -----------------------------
+# Terraform Directories & State
+# -----------------------------
+
+# Ignore .terraform directories everywhere
 .terraform/
+**/.terraform/
 
-# Terraform lock file
-*.terraform.lock.hcl
-
-# Terraform state files
-*terraform.tfstate
-*terraform.tfstate.*
+# Ignore Terraform state files everywhere
+terraform.tfstate
+terraform.tfstate.*
+**/terraform.tfstate
+**/terraform.tfstate.*
 *.tfstate.backup
 *.tfstate.backup.*
+**/*.tfstate.backup
+**/*.tfstate.backup.*
 
-# Crash log files
+# -----------------------------
+# Terraform Lock Files
+# -----------------------------
+.terraform.lock.hcl
+**/.terraform.lock.hcl
+
+# -----------------------------
+# Crash Logs
+# -----------------------------
 crash.log
 crash.*.log
+**/crash.log
+**/crash.*.log
 
-# Override files
+# -----------------------------
+# Override Files
+# -----------------------------
 override.tf
 override.tf.json
 *_override.tf
 *_override.tf.json
+**/override.tf
+**/override.tf.json
+**/*_override.tf
+**/*_override.tf.json
 
-# Plan files
+# -----------------------------
+# Plan Files
+# -----------------------------
 *.tfplan
+**/*.tfplan
 
-# Sensitive variable files
+# -----------------------------
+# Sensitive Variables
+# -----------------------------
 *.tfvars
 *.tfvars.json
- 
+**/*.tfvars
+**/*.tfvars.json
