@@ -19,7 +19,7 @@ provider "azurerm" {
 
 # Variables
 variable "win_vm_name" {
-  type = string
+  type    = string
   default = ""
 }
 
@@ -111,7 +111,7 @@ resource "azurerm_windows_virtual_machine" "win" {
   os_disk {
     caching              = "ReadWrite"
     storage_account_type = "Premium_LRS"
-    disk_size_gb = 127
+    disk_size_gb         = 127
   }
 
   source_image_reference {
@@ -139,19 +139,36 @@ resource "azurerm_virtual_machine_data_disk_attachment" "data" {
   caching            = "ReadOnly"
 }
 
+# Configure data disk for SQL
+resource "azurerm_managed_disk" "temp" {
+  name                 = "${var.win_vm_name}-temp-disk"
+  location             = var.location
+  resource_group_name  = var.sql_rg
+  storage_account_type = "StandardSSD_LRS"
+  create_option        = "Empty"
+  disk_size_gb         = 32
+}
+
+resource "azurerm_virtual_machine_data_disk_attachment" "temp" {
+  managed_disk_id    = azurerm_managed_disk.temp.id
+  virtual_machine_id = azurerm_windows_virtual_machine.win.id
+  lun                = 1
+  caching            = "ReadOnly"
+}
+
 # ---------------------------
 # SQL IaaS Agent Extension
 # ---------------------------
 resource "azurerm_mssql_virtual_machine" "sql_extension" {
-  virtual_machine_id = azurerm_windows_virtual_machine.win.id
-  sql_license_type   = "PAYG"
-  sql_connectivity_port = 1433
-  sql_connectivity_type = "PRIVATE"
+  virtual_machine_id               = azurerm_windows_virtual_machine.win.id
+  sql_license_type                 = "PAYG"
+  sql_connectivity_port            = 1433
+  sql_connectivity_type            = "PRIVATE"
   sql_connectivity_update_username = "Thanos"
-  sql_connectivity_update_password = "${var.admin_password}"
-  depends_on = [ 
+  sql_connectivity_update_password = var.admin_password
+  depends_on = [
     azurerm_windows_virtual_machine.win
-   ]
+  ]
 }
 
 # ---------------------------
@@ -172,7 +189,39 @@ resource "azurerm_virtual_machine_extension" "install_ssms" {
 
   depends_on = [azurerm_windows_virtual_machine.win]
 }
- 
+
+# Storage Account for Backups
+resource "azurerm_storage_account" "backup" {
+  name                     = "sqldbbkup01"
+  resource_group_name      = var.sql_rg
+  location                 = var.location
+  account_tier             = "Standard"
+  account_kind             = "StorageV2"
+  account_replication_type = "LRS"
+
+  allow_nested_items_to_be_public = false
+
+  depends_on = [
+    azurerm_windows_virtual_machine.win
+  ]
+}
+
+# File Share for Backups
+resource "azurerm_storage_share" "backupshare" {
+  name                 = "sqldbbkupfs"
+  storage_account_name = azurerm_storage_account.backup.name
+  quota                = 1024 # in GB
+  depends_on = [
+    azurerm_windows_virtual_machine.win,
+    azurerm_storage_account.backup
+  ]
+}
+
+# Output the storage key for mounting
+output "storage_account_key" {
+  value     = azurerm_storage_account.backup.primary_access_key
+  sensitive = true
+}
 
 # Output important information
 output "win_vm_name" {
