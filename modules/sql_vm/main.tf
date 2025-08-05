@@ -116,7 +116,7 @@ resource "azurerm_windows_virtual_machine" "win" {
 
   source_image_reference {
     publisher = "microsoftsqlserver"
-    offer     = "sql2022-WS2022"
+    offer     = "sql2022-ws2022"
     sku       = var.sql_edition
     version   = "latest"
   }
@@ -153,6 +153,26 @@ resource "azurerm_mssql_virtual_machine" "sql_extension" {
     azurerm_windows_virtual_machine.win
    ]
 }
+
+# ---------------------------
+# SQL SSMS Agent Extension
+# ---------------------------
+resource "azurerm_virtual_machine_extension" "install_ssms" {
+  name                 = "install-ssms"
+  virtual_machine_id   = azurerm_windows_virtual_machine.win.id
+  publisher            = "Microsoft.Compute"
+  type                 = "CustomScriptExtension"
+  type_handler_version = "1.10"
+
+  settings = <<SETTINGS
+    {
+      "commandToExecute": "powershell -ExecutionPolicy Unrestricted -Command Invoke-WebRequest -Uri https://aka.ms/ssmsfullsetup -OutFile C:\\ssms.exe; Start-Process C:\\ssms.exe -ArgumentList '/Quiet /Install' -Wait"
+    }
+    SETTINGS
+
+  depends_on = [azurerm_windows_virtual_machine.win]
+}
+ 
 
 # Output important information
 output "win_vm_name" {
