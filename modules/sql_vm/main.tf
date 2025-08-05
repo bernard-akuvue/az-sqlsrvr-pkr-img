@@ -39,6 +39,12 @@ variable "admin_password" {
   sensitive = true
 }
 
+variable "sql_password" {
+  type      = string
+  default   = ""
+  sensitive = true
+}
+
 variable "sql_edition" {
   default = ""
 }
@@ -157,7 +163,7 @@ resource "azurerm_virtual_machine_data_disk_attachment" "temp" {
 }
 
 # ---------------------------
-# SQL IaaS Agent Extension
+# SQL IaaS Agent Extension with Storage Configuration
 # ---------------------------
 resource "azurerm_mssql_virtual_machine" "sql_extension" {
   virtual_machine_id               = azurerm_windows_virtual_machine.win.id
@@ -166,8 +172,31 @@ resource "azurerm_mssql_virtual_machine" "sql_extension" {
   sql_connectivity_type            = "PRIVATE"
   sql_connectivity_update_username = "Thanos"
   sql_connectivity_update_password = var.admin_password
+
+  # Configure storage settings
+  storage_configuration {
+    disk_type             = "NEW"
+    storage_workload_type = "GENERAL"
+
+    data_settings {
+      default_file_path = "F:\\Databases\\UserDBs"
+      luns              = [0] # LUN for data disk
+    }
+
+    log_settings {
+      default_file_path = "F:\\Databases\\UserDBs"
+      luns              = [0] # LUN for data disk
+    }
+
+    temp_db_settings {
+      default_file_path = "H:\\tempDb"
+      luns              = [1] # LUN for temp disk
+    }
+  }
+
   depends_on = [
-    azurerm_windows_virtual_machine.win
+    azurerm_virtual_machine_data_disk_attachment.data,
+    azurerm_virtual_machine_data_disk_attachment.temp
   ]
 }
 
